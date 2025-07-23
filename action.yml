@@ -67,6 +67,10 @@ inputs:
        - '[]'
     required: false
     default: '["html"]'
+  timeout-pdf:
+    description: "Timeout for PDF generation (Integer). No timeout (0) by default."
+    required: false
+    default: '0'
   reports-retention-days:
     description: "How many days are the reports available in github artifacts."
     required: false
@@ -228,7 +232,7 @@ runs:
     - name: Convert Markdown overall Issues Report to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/overall/issues-report.md
         theme: styles/issues-reports-styles.css
@@ -236,11 +240,12 @@ runs:
         output_dir: reports/overall/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Convert Markdown New Issues Report to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'new')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/new/issues-report.md
         theme: styles/issues-reports-styles.css
@@ -248,6 +253,7 @@ runs:
         output_dir: reports/new/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Fetch overall Sonar Security Hotspots Report
       shell: bash
@@ -293,7 +299,7 @@ runs:
     - name: Convert Markdown overall Security Hotspots Reports to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/overall/hotspots-report.md
         theme: styles/hotspots-reports-styles.css
@@ -301,11 +307,12 @@ runs:
         output_dir: reports/overall/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Convert Markdown New Security Hotspots Reports to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'new')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/new/hotspots-report.md
         theme: styles/hotspots-reports-styles.css
@@ -313,6 +320,7 @@ runs:
         output_dir: reports/new/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Build artifact path list
       shell: bash
