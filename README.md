@@ -61,20 +61,21 @@ permissions:
 <details open>
 <summary><i>Show</i></summary>
 
-| Parameter | Description | Default | Required |
-|-----------|-------------|---------|----------|
-| `sonar-project-name` | SonarQube Project Name | Repository name | No |
-| `sonar-project-key` | SonarQube Project Key | Repository name | No |
-| `sonar-source-path` | Source path from git root | `.` | No |
-| `sonar-metrics-path` | Path to metrics JSON | `./sonar-metrics.json` | No |
-| `sonar-instance-port` | SonarQube instance port | `9234` | No |
-| `sonar-options` | Additional SonarQube scanner options | - | No |
-| `pre-scan-script` | Path to pre-scan script or inline script | - | No |
-| `generate-pr-comment` | Enable PR comments | `false` | No |
-| `new-code-n-days` | New code period (e.g., '3d', '1w') | `30d` | No |
-| `reports-scopes` | Report scopes (overall, new) | `[]` | No |
-| `reports-extensions` | Report formats (md, html, json, pdf) | `["html"]` | No |
-| `reports-retention-days` | Days to keep reports in artifacts | `0` | No |
+| Parameter                | Description                              | Default                | Required |
+|--------------------------|------------------------------------------|------------------------|----------|
+| `sonar-project-name`     | SonarQube Project Name                   | Repository name        | No |
+| `sonar-project-key`      | SonarQube Project Key                    | Repository name        | No |
+| `sonar-source-path`      | Source path from git root                | `.`                    | No |
+| `sonar-metrics-path`     | Path to metrics JSON                     | `./sonar-metrics.json` | No |
+| `sonar-instance-port`    | SonarQube instance port                  | `9234`                 | No |
+| `sonar-options`          | Additional SonarQube scanner options     | -                      | No |
+| `pre-scan-script`        | Path to pre-scan script or inline script | -                      | No |
+| `generate-pr-comment`    | Enable PR comments                       | `false`                | No |
+| `new-code-n-days`        | New code period (e.g., '3d', '1w')       | `30d`                  | No |
+| `reports-scopes`         | Report scopes (overall, new)             | `[]`                   | No |
+| `reports-extensions`     | Report formats (md, html, json, pdf)     | `["html"]`             | No |
+| `timeout-pdf`            | Timeout for PDF generation               | `0`                    | No |
+| `reports-retention-days` | Days to keep reports in artifacts        | `0`                    | No |
 
 </details>
 

@@ -67,6 +67,10 @@ inputs:
        - '[]'
     required: false
     default: '["html"]'
+  timeout-pdf:
+    description: "Timeout for PDF generation (Integer). No timeout (0) by default."
+    required: false
+    default: '0'
   reports-retention-days:
     description: "How many days are the reports available in github artifacts."
     required: false
@@ -102,7 +106,7 @@ runs:
       shell: bash
 
     - name: Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         fetch-depth: 0
         ref: ${{ steps.setup.outputs.branch_ref }}
@@ -228,7 +232,7 @@ runs:
     - name: Convert Markdown overall Issues Report to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/overall/issues-report.md
         theme: styles/issues-reports-styles.css
@@ -236,11 +240,12 @@ runs:
         output_dir: reports/overall/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Convert Markdown New Issues Report to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'new')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/new/issues-report.md
         theme: styles/issues-reports-styles.css
@@ -248,6 +253,7 @@ runs:
         output_dir: reports/new/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Fetch overall Sonar Security Hotspots Report
       shell: bash
@@ -293,7 +299,7 @@ runs:
     - name: Convert Markdown overall Security Hotspots Reports to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/overall/hotspots-report.md
         theme: styles/hotspots-reports-styles.css
@@ -301,11 +307,12 @@ runs:
         output_dir: reports/overall/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Convert Markdown New Security Hotspots Reports to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'new')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
-      uses: baileyjm02/markdown-to-pdf@1be26775add5f94fb55d4a2ce36ff7cad23b8dd0 # v1.2.0
+      uses: VIDADv1/markdown-to-pdf@8ba2a11123f69ac52026eaf0851eec9797df584f # v1.2.0
       with:
         input_path: reports/new/hotspots-report.md
         theme: styles/hotspots-reports-styles.css
@@ -313,6 +320,7 @@ runs:
         output_dir: reports/new/
         build_html: ${{ contains(fromJSON(inputs.reports-extensions), 'html') }}
         build_pdf: ${{ contains(fromJSON(inputs.reports-extensions), 'pdf') }}
+        timeout_pdf: ${{inputs.timeout-pdf}}
 
     - name: Build artifact path list
       shell: bash
@@ -335,7 +343,7 @@ runs:
     - name: Upload overall code reports as artifact
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
       id: upload-overall-code-reports
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: sonar-overall-code-reports-${{ steps.setup.outputs.started }}
         path: ${{ steps.artifact-paths.outputs.overall_artifact_paths }}
@@ -344,7 +352,7 @@ runs:
     - name: Upload new code reports as artifact
       id: upload-new-code-reports
       if: contains(fromJSON(inputs.reports-scopes), 'new')
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: sonar-new-code-reports-${{ steps.setup.outputs.started }}
         path: ${{ steps.artifact-paths.outputs.new_artifact_paths }}
@@ -379,7 +387,7 @@ runs:
         echo -e "$summary" >> $GITHUB_STEP_SUMMARY
 
     - name: Find Comment
-      uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3.1.0
+      uses: peter-evans/find-comment@b30e6a3c0ed37e7c023ccd3f1db5c6c0b0c23aad # v4.0.0
       id: find-comment
       if: inputs.generate-pr-comment == 'true' && steps.setup.outputs.mode == 'PR'
       with:
@@ -388,7 +396,7 @@ runs:
         body-includes: Scanwise Analysis Summary
 
     - name: Create Or Update Comment
-      uses: peter-evans/create-or-update-comment@71345be0265236311c031f5c7866368bd1eff043 # v4.0.0
+      uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
       if: inputs.generate-pr-comment == 'true' && steps.setup.outputs.mode == 'PR'
       with:
         repository: ${{ github.repository }}
