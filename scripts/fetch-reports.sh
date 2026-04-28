@@ -2,6 +2,41 @@
 export SONAR_INSTANCE_PORT=${SONAR_INSTANCE_PORT:-"9234"}
 export SONAR_PROJECT_NAME="${SONAR_PROJECT_NAME:-$(basename "$(pwd)")}"
 
+function create_diff_issues_report_json() {
+  local baseline_issues_filename="$1"
+  local current_issues_filename="$2"
+  local output_issues_filename="$3"
+
+  # Compare issue snapshots by Sonar's stable key so PR mode reports true additions instead of timestamp guesses.
+  create_new_report_by_key_diff "$baseline_issues_filename" "$current_issues_filename" "$output_issues_filename"
+}
+
+function create_diff_hotspots_report_json() {
+  local baseline_hotspots_filename="$1"
+  local current_hotspots_filename="$2"
+  local output_hotspots_filename="$3"
+
+  # Hotspots also expose stable keys, so the same snapshot diff gives PR-only hotspot additions.
+  create_new_report_by_key_diff "$baseline_hotspots_filename" "$current_hotspots_filename" "$output_hotspots_filename"
+}
+
+function create_new_report_by_key_diff() {
+  local baseline_report_filename="$1"
+  local current_report_filename="$2"
+  local output_report_filename="$3"
+
+  # The fallback fingerprint keeps the diff usable if a future Sonar API response omits keys for a report type.
+  jq -s '
+    def stable_report_key:
+      (.key // ([.rule // .ruleKey // "", .component // "", ((.line // "-") | tostring), .message // ""] | join("|")));
+
+    (.[0] // []) as $baseline_report |
+    (.[1] // []) as $current_report |
+    ($baseline_report | map(stable_report_key) | unique) as $baseline_keys |
+    $current_report | map(select((stable_report_key as $candidate_key | $baseline_keys | index($candidate_key)) | not))
+  ' "$baseline_report_filename" "$current_report_filename" > "$output_report_filename"
+}
+
 function create_pr_issues_report_json() {
   local issues_filename="$1"
   local commit_data_filename="$2"
@@ -74,12 +109,12 @@ function fetch_and_append_issues() {
     fi
     
     # If we've fetched all pages, exit the loop
-    if [ "$total" -le $(("$PAGE" * 500)) ]; then
+    if [ "$total" -le $((PAGE * 500)) ]; then
       break
     fi
 
     # Increment page counter for the next request
-    PAGE=$(("$PAGE" + 1))
+    PAGE=$((PAGE + 1))
   done
 }
 
@@ -149,10 +184,10 @@ function fetch_and_append_hotspots() {
       fi
       
       # If we've fetched all pages, exit the loop
-      if [ "$total" -le $(("$PAGE" * 500)) ]; then
+      if [ "$total" -le $((PAGE * 500)) ]; then
         break
       fi
-      PAGE=$(("$PAGE" + 1))
+      PAGE=$((PAGE + 1))
   done
 }
 

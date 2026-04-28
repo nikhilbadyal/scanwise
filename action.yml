@@ -85,7 +85,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         EVENT_NAME: ${{ github.event_name }}
         REF: ${{ github.ref }}
-        HEAD_REF: ${{ github.head_ref }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
         PR_NB: ${{ github.event.pull_request.number }}
       run: |
         echo "started=$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
@@ -93,16 +94,21 @@ runs:
         if [ "$EVENT_NAME" == "pull_request" ]; then
           echo "mode=PR" >> $GITHUB_OUTPUT
           echo "pr_number=$PR_NB" >> $GITHUB_OUTPUT
-          echo "branch_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+          echo "branch_ref=$HEAD_SHA" >> $GITHUB_OUTPUT
+          echo "head_sha=$HEAD_SHA" >> $GITHUB_OUTPUT
+          echo "base_sha=$BASE_SHA" >> $GITHUB_OUTPUT
         else
           echo "mode=BRANCH" >> $GITHUB_OUTPUT
           echo "pr_number=" >> $GITHUB_OUTPUT
           echo "branch_ref=$REF" >> $GITHUB_OUTPUT
+          echo "head_sha=" >> $GITHUB_OUTPUT
+          echo "base_sha=" >> $GITHUB_OUTPUT
         fi
 
         chmod +x $ACTION_PATH/scripts/makefile.sh
         chmod +x $ACTION_PATH/scripts/fetch-reports.sh
         chmod +x $ACTION_PATH/scripts/generate-summary-and-reports.sh
+        chmod +x $ACTION_PATH/scripts/run-pre-scan-script.sh
       shell: bash
 
     - name: Checkout Code
@@ -113,22 +119,16 @@ runs:
 
     - name: Prepare runner
       env:
-        GH_TOKEN: ${{ github.token }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        # Create reports output directory
-        mkdir reports
-        mkdir reports/overall
-        mkdir reports/new
+        # Keep baseline separate from generated reports so PR diff inputs are not accidentally uploaded.
+        mkdir -p reports/baseline
+        mkdir -p reports/overall
+        mkdir -p reports/new
 
-        # Create and copy styles directory
+        # Copy report styles into the workspace because markdown-to-pdf resolves themes from the checked-out repo.
         mkdir -p $GITHUB_WORKSPACE/styles
         cp $ACTION_PATH/styles/*.css $GITHUB_WORKSPACE/styles/ || true
-        
-        if [ "${{ steps.setup.outputs.mode }}" == "PR" ]; then
-          PR_COMMITS_DATA=$(gh pr view ${{ steps.setup.outputs.pr_number }} --json commits --jq '.commits[] | "\(.committedDate) \(.authors[].email)"')
-          echo "$PR_COMMITS_DATA" > pr-commits-data.txt
-        fi
       shell: bash
 
     - name: Get Docker Deps
@@ -139,10 +139,52 @@ runs:
         $ACTION_PATH/scripts/makefile.sh sonar-ext-get
       shell: bash
 
+    - name: Scan PR baseline
+      if: steps.setup.outputs.mode == 'PR'
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        PRE_SCAN_SCRIPT: ${{ inputs.pre-scan-script }}
+        SONAR_PROJECT_NAME: ${{inputs.sonar-project-name}}
+        SONAR_PROJECT_KEY: ${{inputs.sonar-project-key}}
+        SONAR_SOURCE_PATH: ${{inputs.sonar-source-path}}
+        SONAR_METRICS_PATH: ${{inputs.sonar-metrics-path}}
+        SONAR_INSTANCE_PORT: ${{ inputs.sonar-instance-port }}
+        SONAR_OPTIONS: ${{inputs.sonar-options}}
+        SONAR_GITROOT: ${{ github.workspace }}
+        BASE_SHA: ${{ steps.setup.outputs.base_sha }}
+      run: |
+        # Scan the target commit first so new-code reports are based on a real baseline snapshot.
+        git checkout --force "$BASE_SHA"
+
+        # Preserve Scanwise output folders while removing generated project files that could pollute the next scan.
+        git clean -fdx -e reports/ -e styles/
+
+        # Run project setup on the exact revision being scanned because build outputs and generated sources can differ.
+        $ACTION_PATH/scripts/run-pre-scan-script.sh "$PRE_SCAN_SCRIPT"
+
+        # Store only machine-readable baseline data; human reports are generated from the PR-head scan.
+        $ACTION_PATH/scripts/makefile.sh scan
+        $ACTION_PATH/scripts/fetch-reports.sh create_overall_issues_report_json "reports/baseline/issues-report.json"
+        $ACTION_PATH/scripts/fetch-reports.sh create_overall_hotspots_report_json "reports/baseline/hotspots-report.json"
+      shell: bash
+
+    - name: Checkout PR head after baseline
+      if: steps.setup.outputs.mode == 'PR'
+      env:
+        HEAD_SHA: ${{ steps.setup.outputs.head_sha }}
+      run: |
+        # Return to the reviewed commit before producing final metrics, reports, and PR comments.
+        git checkout --force "$HEAD_SHA"
+
+        # Keep Scanwise snapshots while clearing artifacts generated from the base revision.
+        git clean -fdx -e reports/ -e styles/
+      shell: bash
+
     - name: Execute pre-scan-script (file or inline)
       if: inputs.pre-scan-script != ''
       env:
         ACTION_PATH: ${{ github.action_path }}
+        PRE_SCAN_SCRIPT: ${{ inputs.pre-scan-script }}
         SONAR_PROJECT_NAME: ${{inputs.sonar-project-name}}
         SONAR_PROJECT_KEY: ${{inputs.sonar-project-key}}
         SONAR_SOURCE_PATH: ${{inputs.sonar-source-path}}
@@ -151,18 +193,8 @@ runs:
         SONAR_OPTIONS: ${{inputs.sonar-options}}
         SONAR_GITROOT: ${{ github.workspace }}
       run: |
-        echo "➡️ Running pre-scan-script input..."
-
-        if [ -f "${{ inputs.pre-scan-script }}" ] && [ ! -d "${{ inputs.pre-scan-script }}" ]; then
-          echo "📝 Running file: ${{ inputs.pre-scan-script }}"
-          chmod +x "${{ inputs.pre-scan-script }}"
-          "${{ inputs.pre-scan-script }}"
-        else
-          echo "📜 Running inline multi-line script"
-          echo "${{ inputs.pre-scan-script }}" > pre-scan-script.sh
-          chmod +x pre-scan-script.sh
-          ./pre-scan-script.sh
-        fi
+        # Delegate execution to one script so PR base and head scans use identical setup semantics.
+        $ACTION_PATH/scripts/run-pre-scan-script.sh "$PRE_SCAN_SCRIPT"
       shell: bash
 
     - name: Scanning
@@ -199,18 +231,19 @@ runs:
       shell: bash
 
     - name: Fetch overall Sonar Issues Report
-      if: contains(fromJSON(inputs.reports-scopes), 'overall')
       env:
         SONAR_PROJECT_NAME: ${{inputs.sonar-project-name}}
         SONAR_INSTANCE_PORT: ${{ inputs.sonar-instance-port }}
         ACTION_PATH: ${{ github.action_path }}
       shell: bash
       run: |
-        # Fetch all issues
+        # Always fetch the current issue snapshot because PR diff mode needs it even when overall artifacts are disabled.
         $ACTION_PATH/scripts/fetch-reports.sh create_overall_issues_report_json "reports/overall/issues-report.json"
 
-        # Generate the overall Issues report
-        $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_issues_report_md "reports/overall/issues-report.json" "reports/overall/issues-report.md"
+        if [ "${{ contains(fromJSON(inputs.reports-scopes), 'overall') }}" == "true" ]; then
+          # Generate human-readable overall output only when the caller asked for overall reports.
+          $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_issues_report_md "reports/overall/issues-report.json" "reports/overall/issues-report.md"
+        fi
 
     - name: Fetch New Sonar Issues Report
       shell: bash
@@ -219,14 +252,17 @@ runs:
         SONAR_INSTANCE_PORT: ${{ inputs.sonar-instance-port }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        # Fetch New Issues
+        # PR mode compares two scans; branch mode keeps the existing age-based behavior.
         if [ "${{ steps.setup.outputs.mode }}" == "PR" ]; then
-          $ACTION_PATH/scripts/fetch-reports.sh create_pr_issues_report_json "reports/new/issues-report.json" "pr-commits-data.txt"
+          $ACTION_PATH/scripts/fetch-reports.sh create_diff_issues_report_json \
+            "reports/baseline/issues-report.json" \
+            "reports/overall/issues-report.json" \
+            "reports/new/issues-report.json"
         else
           $ACTION_PATH/scripts/fetch-reports.sh create_n_days_issues_report_json "reports/new/issues-report.json" "${{ inputs.new-code-n-days }}"
         fi
 
-        # Generate the New Issues report
+        # The markdown report feeds both artifacts and the summary link.
         $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_issues_report_md "reports/new/issues-report.json" "reports/new/issues-report.md"
 
     - name: Convert Markdown overall Issues Report to HTML and PDF
@@ -262,13 +298,15 @@ runs:
         SONAR_INSTANCE_PORT: ${{ inputs.sonar-instance-port }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        # Fetch all hotspots
+        # Always fetch the current hotspot snapshot because PR diff mode needs it even when overall artifacts are disabled.
         $ACTION_PATH/scripts/fetch-reports.sh create_overall_hotspots_report_json "reports/overall/hotspots-report.json"
 
-        # Generate the overall Security Hotspots report
-        $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_hotspots_report_md \
-          "reports/overall/hotspots-report.json" \
-          "reports/overall/hotspots-report.md"
+        if [ "${{ contains(fromJSON(inputs.reports-scopes), 'overall') }}" == "true" ]; then
+          # Generate human-readable overall output only when the caller asked for overall reports.
+          $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_hotspots_report_md \
+            "reports/overall/hotspots-report.json" \
+            "reports/overall/hotspots-report.md"
+        fi
 
     - name: Fetch New Sonar Security Hotspots Report
       shell: bash
@@ -277,13 +315,12 @@ runs:
         SONAR_INSTANCE_PORT: ${{ inputs.sonar-instance-port }}
         ACTION_PATH: ${{ github.action_path }}
       run: |
-        # Fetch New Hotspots
-        
+        # PR mode compares two scans; branch mode keeps the existing age-based behavior.
         if [ "${{ steps.setup.outputs.mode }}" == "PR" ]; then
-          $ACTION_PATH/scripts/fetch-reports.sh create_pr_hotspots_report_json \
+          $ACTION_PATH/scripts/fetch-reports.sh create_diff_hotspots_report_json \
+            "reports/baseline/hotspots-report.json" \
             "reports/overall/hotspots-report.json" \
-            "reports/new/hotspots-report.json" \
-            "pr-commits-data.txt"
+            "reports/new/hotspots-report.json"
         else
           $ACTION_PATH/scripts/fetch-reports.sh create_n_days_hotspots_report_json \
             "reports/overall/hotspots-report.json" \
@@ -291,9 +328,7 @@ runs:
             "${{ inputs.new-code-n-days }}"
         fi
         
-        echo "cat reports/new/hotspots-report.json"
-        cat reports/new/hotspots-report.json
-        # Generate the New Security Hotspots report
+        # The markdown report feeds both artifacts and the summary link.
         $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_hotspots_report_md "reports/new/hotspots-report.json" "reports/new/hotspots-report.md"
 
     - name: Convert Markdown overall Security Hotspots Reports to HTML and PDF

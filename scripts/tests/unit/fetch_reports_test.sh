@@ -45,6 +45,12 @@ test_create_pr_issues_report_json() {
     return 0
   }
   export -f curl
+
+  function date {
+    # Keep the legacy PR-filter test portable on macOS, where GNU date's -d option is unavailable.
+    echo "2023-01-01T00:00:00+0000"
+  }
+  export -f date
   
   # Create temporary files for results and inputs
   tmp_output=$(mktemp)
@@ -68,6 +74,7 @@ test_create_pr_issues_report_json() {
   
   # Clean up
   rm "$tmp_output" "$tmp_input"
+  unset -f date
   
   echo "✅ test_create_pr_issues_report_json passed"
 }
@@ -100,6 +107,70 @@ test_create_n_days_issues_report_json() {
   rm "$tmp_file"
   
   echo "✅ test_create_n_days_issues_report_json passed"
+}
+
+test_create_diff_issues_report_json() {
+  # Keep one baseline issue and one current-only issue so the test proves PR mode reports additions.
+  baseline_file=$(mktemp)
+  current_file=$(mktemp)
+  output_file=$(mktemp)
+
+  cat > "$baseline_file" << EOF
+[
+  {"key": "ISSUE-1", "message": "Existing issue"}
+]
+EOF
+
+  cat > "$current_file" << EOF
+[
+  {"key": "ISSUE-1", "message": "Existing issue"},
+  {"key": "ISSUE-2", "message": "New PR issue"}
+]
+EOF
+
+  bash -c "source $FETCH_REPORTS_SCRIPT && create_diff_issues_report_json $baseline_file $current_file $output_file" 2>&1
+
+  assert_file_exists "$output_file"
+  content=$(cat "$output_file")
+  assert_contains "$content" "ISSUE-2"
+  assert_contains "$content" "New PR issue"
+  assert_not_contains "$content" "ISSUE-1"
+
+  rm "$baseline_file" "$current_file" "$output_file"
+
+  echo "✅ test_create_diff_issues_report_json passed"
+}
+
+test_create_diff_hotspots_report_json() {
+  # Hotspot snapshots use the same stable-key diff as issues, so only current-only keys should remain.
+  baseline_file=$(mktemp)
+  current_file=$(mktemp)
+  output_file=$(mktemp)
+
+  cat > "$baseline_file" << EOF
+[
+  {"key": "HOTSPOT-1", "message": "Existing hotspot"}
+]
+EOF
+
+  cat > "$current_file" << EOF
+[
+  {"key": "HOTSPOT-1", "message": "Existing hotspot"},
+  {"key": "HOTSPOT-2", "message": "New PR hotspot"}
+]
+EOF
+
+  bash -c "source $FETCH_REPORTS_SCRIPT && create_diff_hotspots_report_json $baseline_file $current_file $output_file" 2>&1
+
+  assert_file_exists "$output_file"
+  content=$(cat "$output_file")
+  assert_contains "$content" "HOTSPOT-2"
+  assert_contains "$content" "New PR hotspot"
+  assert_not_contains "$content" "HOTSPOT-1"
+
+  rm "$baseline_file" "$current_file" "$output_file"
+
+  echo "✅ test_create_diff_hotspots_report_json passed"
 }
 
 test_null_pagination_handling() {
@@ -230,6 +301,8 @@ run_tests() {
   test_create_overall_issues_report_json
   test_create_pr_issues_report_json
   test_create_n_days_issues_report_json
+  test_create_diff_issues_report_json
+  test_create_diff_hotspots_report_json
   test_null_pagination_handling
   test_empty_response_handling
   test_create_overall_hotspots_report_json

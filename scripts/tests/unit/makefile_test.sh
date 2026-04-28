@@ -126,6 +126,8 @@ elif [[ "$*" == *"api/projects/create"* ]]; then
   echo '{"project":{"key":"test-project"}}'
 elif [[ "$*" == *"api/user_tokens/generate"* ]]; then
   echo '{"token":"test-token"}'
+elif [[ "$*" == *"api/ce/task"* ]]; then
+  echo '{"task":{"status":"SUCCESS"}}'
 elif [[ "$*" == *"-w %{http_code}"* ]]; then
   # Respond with 200 for HTTP status checks
   echo "200"
@@ -144,6 +146,9 @@ echo "docker called with args: $@" >&2
 if [[ "$*" == *"start"* ]]; then
   echo "Mocked docker start called"
 elif [[ "$*" == *"sonar-scanner"* ]]; then
+  # The real scanner writes a task file that scan() uses to wait for the exact analysis.
+  mkdir -p "${SONAR_GITROOT}/.scannerwork"
+  echo "ceTaskId=test-ce-task" > "${SONAR_GITROOT}/.scannerwork/report-task.txt"
   echo "Docker sonar-scanner running with args: $@"
   exit 0
 fi
@@ -156,6 +161,8 @@ EOF
 #!/bin/bash
 if [[ "$*" == *".token"* ]]; then
   echo "test-token"
+elif [[ "$*" == *".task.status"* ]]; then
+  echo "SUCCESS"
 elif [[ "$*" == *".status"* ]]; then
   echo "UP"
 else

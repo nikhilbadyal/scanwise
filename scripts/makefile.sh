@@ -110,6 +110,49 @@ function stop() {
     docker stop "${SONAR_INSTANCE_NAME}" > /dev/null 2>&1 && echo "Local SonarQube has been stopped"
 }
 
+function wait_for_analysis_task() {
+    local report_task_file="$1"
+    local ce_task_id
+    local status_value
+
+    # The scanner writes the Compute Engine task id after upload; waiting on that id prevents stale results after repeat scans.
+    if [ ! -f "${report_task_file}" ]; then
+        echo "SonarQube report task file not found at ${report_task_file}"
+        exit 1
+    fi
+
+    ce_task_id=$(awk -F= '$1 == "ceTaskId" {print $2}' "${report_task_file}")
+
+    # Without a task id there is no reliable way to know which analysis completed.
+    if [ -z "${ce_task_id}" ]; then
+        echo "SonarQube report task file does not contain ceTaskId"
+        exit 1
+    fi
+
+    printf '\nWaiting for analysis task %s' "${ce_task_id}"
+    for _ in $(seq 1 300); do
+        status_value=$(curl -s -u "admin:Son@rless123" "http://localhost:${SONAR_INSTANCE_PORT}/api/ce/task?id=${ce_task_id}" | jq -r '.task.status // empty')
+
+        if [[ "${status_value}" == "SUCCESS" ]]; then
+            echo
+            return
+        fi
+
+        if [[ "${status_value}" == "FAILED" || "${status_value}" == "CANCELED" || "${status_value}" == "CANCELLED" ]]; then
+            echo
+            echo "SonarQube analysis task ${ce_task_id} finished with status ${status_value}"
+            exit 1
+        fi
+
+        sleep 1
+        printf .
+    done
+
+    echo
+    echo "Timed out waiting for SonarQube analysis task ${ce_task_id}"
+    exit 1
+}
+
 function scan() {
     start
 
@@ -132,23 +175,15 @@ function scan() {
         "${DOCKER_SONAR_CLI}";
     SCAN_RET_CODE="$?"
 
-    # 3. Wait for scanning to be done
     if [[ "${SCAN_RET_CODE}" -eq "0" ]]; then
-        printf '\nWaiting for analysis' 
-        for _ in $(seq 1 120); do
-            sleep 1
-            printf .
-            status_value=$(curl -s -u "admin:Son@rless123" "http://localhost:${SONAR_INSTANCE_PORT}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_NAME}" | jq -r .projectStatus.status)
-            # Checking if the status value is not "NONE"
-            if [[ "$status_value" != "NONE" ]]; then
-                echo
-                echo "SonarQube scanning done"
-                echo "Use webui http://localhost:${SONAR_INSTANCE_PORT} (admin/scanwise) or 'scanwise results' to get scan outputs"
-                break
-            fi
-        done
+        # Wait on the scan's own background task so repeated PR base/head scans cannot read stale analysis data.
+        wait_for_analysis_task "${SONAR_GITROOT}/.scannerwork/report-task.txt"
+        echo "SonarQube scanning done"
+        echo "Use webui http://localhost:${SONAR_INSTANCE_PORT} (admin/scanwise) or 'scanwise results' to get scan outputs"
     else
-        printf '\nSonarQube scanning failed!' 
+        # Propagate scanner failures so GitHub Actions cannot continue with stale or incomplete report data.
+        printf '\nSonarQube scanning failed!\n'
+        exit "${SCAN_RET_CODE}"
     fi
 }
 
