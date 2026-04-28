@@ -331,6 +331,17 @@ runs:
         # The markdown report feeds both artifacts and the summary link.
         $ACTION_PATH/scripts/generate-summary-and-reports.sh generate_hotspots_report_md "reports/new/hotspots-report.json" "reports/new/hotspots-report.md"
 
+    - name: Emit new finding annotations
+      if: steps.setup.outputs.mode == 'PR'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        # GitHub annotations mark the affected file/line in the check UI without creating noisy PR review threads.
+        $ACTION_PATH/scripts/generate-summary-and-reports.sh emit_github_annotations \
+          "reports/new/issues-report.json" \
+          "reports/new/hotspots-report.json"
+
     - name: Convert Markdown overall Security Hotspots Reports to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
         && (contains(fromJSON(inputs.reports-extensions), 'html') || contains(fromJSON(inputs.reports-extensions), 'pdf'))
@@ -402,6 +413,8 @@ runs:
         ACTION_PATH: ${{ github.action_path }}
         SONAR_METRICS_PATH: ${{inputs.sonar-metrics-path}}
         SONAR_PROJECT_NAME: ${{inputs.sonar-project-name}}
+        SCANWISE_REPOSITORY: ${{ github.repository }}
+        SCANWISE_COMMIT_SHA: ${{ steps.setup.outputs.head_sha || github.sha }}
       shell: bash
       run: |
         if [ ${{ contains(fromJSON(inputs.reports-scopes), 'new') }} == "true" ]; then
@@ -416,7 +429,9 @@ runs:
           "reports/new/issues-report.json" \
           "reports/new/hotspots-report.json" \
           "$new_issues_reports_link" \
-          "$overall_issues_reports_link"
+          "$overall_issues_reports_link" \
+          "$SCANWISE_REPOSITORY" \
+          "$SCANWISE_COMMIT_SHA"
         )
 
         # Save Summary

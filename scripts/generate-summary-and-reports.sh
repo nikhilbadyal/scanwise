@@ -3,6 +3,109 @@ export SONAR_PROJECT_NAME="${SONAR_PROJECT_NAME:-$(basename "$(pwd)")}"
 export SONAR_GITROOT=${SONAR_GITROOT:-"$(pwd)"}
 export SONAR_METRICS_PATH=${SONAR_METRICS_PATH:-"./sonar-metrics.json"}
 
+function generate_new_findings_md() {
+  local new_issues_report_json_path="$1"
+  local new_hotspots_report_json_path="$2"
+  local repository="$3"
+  local commit_sha="$4"
+  local max_findings="${5:-25}"
+
+  # Keep PR comments useful without becoming unreadable on large changes.
+  jq -rs \
+    --arg repository "$repository" \
+    --arg commit_sha "$commit_sha" \
+    --argjson max_findings "$max_findings" '
+    def md_escape:
+      tostring
+      | gsub("\\|"; "\\|")
+      | gsub("\\*"; "\\*")
+      | gsub("_"; "\\_")
+      | gsub("`"; "\\`")
+      | gsub("\\["; "\\[")
+      | gsub("\\]"; "\\]")
+      | gsub("<"; "\\<")
+      | gsub(">"; "\\>");
+
+    def file_path:
+      (.component // "" | split(":") | if length > 1 then .[1] else .[0] end);
+
+    def line_number:
+      (.line // 1);
+
+    def finding_kind:
+      (.type // "SECURITY_HOTSPOT");
+
+    def finding_severity:
+      (.severity // .vulnerabilityProbability // "-");
+
+    def finding_rule:
+      (.rule // .ruleKey // "-");
+
+    def finding_url:
+      "https://github.com/\($repository)/blob/\($commit_sha)/\(file_path)#L\(line_number)";
+
+    ((.[0] // []) + (.[1] // [])) as $findings |
+    if ($findings | length) == 0 then
+      ""
+    else
+      "### New findings\n" +
+      "| Type | Severity | Location | Rule | Message |\n" +
+      "|------|----------|----------|------|---------|\n" +
+      (
+        $findings[0:$max_findings]
+        | map(
+          "| \(finding_kind | md_escape) | \(finding_severity | md_escape) | " +
+          "[\(file_path | md_escape):\(line_number)](\(finding_url)) | " +
+          "\(finding_rule | md_escape) | \((.message // "") | md_escape) |"
+        )
+        | join("\n")
+      ) +
+      (
+        if ($findings | length) > $max_findings then
+          "\n\n_Showing first \($max_findings) of \($findings | length) new findings._"
+        else
+          ""
+        end
+      ) +
+      "\n\n"
+    end
+  ' "$new_issues_report_json_path" "$new_hotspots_report_json_path"
+}
+
+function emit_github_annotations() {
+  local new_issues_report_json_path="$1"
+  local new_hotspots_report_json_path="$2"
+
+  # GitHub workflow commands create line-level annotations in the check run without failing the workflow.
+  jq -rs '
+    def command_escape:
+      tostring
+      | gsub("%"; "%25")
+      | gsub("\r"; "%0D")
+      | gsub("\n"; "%0A");
+
+    def property_escape:
+      command_escape
+      | gsub(":"; "%3A")
+      | gsub(","; "%2C");
+
+    def file_path:
+      (.component // "" | split(":") | if length > 1 then .[1] else .[0] end);
+
+    def line_number:
+      (.line // 1);
+
+    def finding_kind:
+      (.type // "SECURITY_HOTSPOT");
+
+    def finding_rule:
+      (.rule // .ruleKey // "-");
+
+    ((.[0] // []) + (.[1] // []))[] |
+      "::warning file=\(file_path | property_escape),line=\(line_number),title=\((finding_kind + " " + finding_rule) | property_escape)::\((.message // "") | command_escape)"
+  ' "$new_issues_report_json_path" "$new_hotspots_report_json_path"
+}
+
 function generate_issues_report_md() {
   local input_json_path="$1"
   local output_md_path="$2"
@@ -59,6 +162,8 @@ function generate_scanwise_analysis_summary_md() {
   local new_hotspots_report_json_path="$2"
   local new_code_reports_link="$3"
   local overall_code_reports_link="$4"
+  local repository="${5:-}"
+  local commit_sha="${6:-}"
 
   # Extract metrics for New Code
   local new_code_smells=$(jq '[.[] | select(.type == "CODE_SMELL")] | length' "$new_issues_report_json_path")
@@ -115,6 +220,11 @@ function generate_scanwise_analysis_summary_md() {
   summary="$summary- **🐞 Bugs:** $new_bugs\n"
   summary="$summary- **🔒 Vulnerabilities:** $new_vulnerabilities\n"
   summary="$summary- **🔥 Security Hotspots:** $new_security_hotspots\n\n"
+
+  if [ "$repository" != "" ] && [ "$commit_sha" != "" ]; then
+    # Link every new issue to the exact source line so the PR comment is actionable even without artifacts.
+    summary="$summary$(generate_new_findings_md "$new_issues_report_json_path" "$new_hotspots_report_json_path" "$repository" "$commit_sha")"
+  fi
 
   if [ "$new_code_reports_link" != "" ]; then
     summary="$summary### Issues and Security Hotspots Reports\n"
