@@ -378,6 +378,7 @@ runs:
     - name: Upload overall code reports as artifact
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
       id: upload-overall-code-reports
+      continue-on-error: true
       uses: actions/upload-artifact@v6
       with:
         name: sonar-overall-code-reports-${{ steps.setup.outputs.started }}
@@ -387,6 +388,7 @@ runs:
     - name: Upload new code reports as artifact
       id: upload-new-code-reports
       if: contains(fromJSON(inputs.reports-scopes), 'new')
+      continue-on-error: true
       uses: actions/upload-artifact@v6
       with:
         name: sonar-new-code-reports-${{ steps.setup.outputs.started }}
