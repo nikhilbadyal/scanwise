@@ -164,6 +164,7 @@ function generate_scanwise_analysis_summary_md() {
   local overall_code_reports_link="$4"
   local repository="${5:-}"
   local commit_sha="${6:-}"
+  local new_findings_md=""
 
   # Extract metrics for New Code
   local new_code_smells=$(jq '[.[] | select(.type == "CODE_SMELL")] | length' "$new_issues_report_json_path")
@@ -223,7 +224,11 @@ function generate_scanwise_analysis_summary_md() {
 
   if [ "$repository" != "" ] && [ "$commit_sha" != "" ]; then
     # Link every new issue to the exact source line so the PR comment is actionable even without artifacts.
-    summary="$summary$(generate_new_findings_md "$new_issues_report_json_path" "$new_hotspots_report_json_path" "$repository" "$commit_sha")"
+    new_findings_md=$(generate_new_findings_md "$new_issues_report_json_path" "$new_hotspots_report_json_path" "$repository" "$commit_sha")
+    if [ "$new_findings_md" != "" ]; then
+      # Command substitution trims trailing newlines, so add spacing here before the next summary section.
+      summary="$summary${new_findings_md}\n\n"
+    fi
   fi
 
   if [ "$new_code_reports_link" != "" ]; then

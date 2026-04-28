@@ -155,12 +155,66 @@ EOF
   echo "✅ test_emit_github_annotations passed"
 }
 
+test_generate_scanwise_analysis_summary_spacing() {
+  # The sticky PR comment should keep the new-findings table visually separate from the overall section.
+  tmp_dir=$(mktemp -d)
+  issues_file=$(mktemp)
+  hotspots_file=$(mktemp)
+
+  cat > "$issues_file" << EOF
+[
+  {
+    "type": "VULNERABILITY",
+    "severity": "CRITICAL",
+    "component": "test:src/app.js",
+    "message": "Avoid eval",
+    "line": 4,
+    "rule": "javascript:S1523"
+  }
+]
+EOF
+
+  echo "[]" > "$hotspots_file"
+  cat > "$tmp_dir/sonar-metrics.json" << EOF
+{
+  "component": {
+    "name": "tests",
+    "measures": [
+      {"metric": "ncloc", "value": "10"},
+      {"metric": "code_smells", "value": "1"},
+      {"metric": "bugs", "value": "0"},
+      {"metric": "vulnerabilities", "value": "1"},
+      {"metric": "security_hotspots", "value": "0"},
+      {"metric": "sqale_rating", "value": "1.0"},
+      {"metric": "reliability_rating", "value": "1.0"},
+      {"metric": "security_rating", "value": "1.0"},
+      {"metric": "coverage", "value": "0.0"},
+      {"metric": "duplicated_lines_density", "value": "0.0"},
+      {"metric": "quality_gate_details", "value": "{\"level\":\"OK\"}"}
+    ]
+  }
+}
+EOF
+
+  output=$(SONAR_GITROOT="$tmp_dir" SONAR_METRICS_PATH="sonar-metrics.json" bash -c "source $GENERATE_SUMMARY_SCRIPT && generate_scanwise_analysis_summary_md $issues_file $hotspots_file '' '' owner/repo abc123" 2>&1)
+
+  assert_contains "$output" "### New findings"
+  assert_contains "$output" "## 🔁 Overall code statistics 🔁"
+  assert_not_contains "$output" "|## 🔁 Overall code statistics 🔁"
+
+  rm -rf "$tmp_dir"
+  rm "$issues_file" "$hotspots_file"
+
+  echo "✅ test_generate_scanwise_analysis_summary_spacing passed"
+}
+
 # Run all tests
 run_tests() {
   test_generate_issues_report_md
   test_generate_hotspots_report_md
   test_generate_new_findings_md
   test_emit_github_annotations
+  test_generate_scanwise_analysis_summary_spacing
 
   echo "✅ All generate-summary-and-reports.sh tests passed"
 }
