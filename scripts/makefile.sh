@@ -166,18 +166,27 @@ function scan() {
     # 2. Create token and scan using internal-ip becos of docker to docker communication
     SONAR_TOKEN=$(curl -s -X POST -u "admin:Son@rless123" "http://localhost:${SONAR_INSTANCE_PORT}/api/user_tokens/generate?name=$(date +%s%N)" | jq -r .token)
     export SONAR_TOKEN
+
+    # Keep scanner task metadata outside the source tree because the Docker scanner may choose a non-mounted working directory.
+    SONAR_METADATA_DIR="${SONAR_METADATA_DIR:-$(mktemp -d)}"
+    export SONAR_METADATA_DIR
+
+    # The scanner container runs as its own user, so this directory must be writable from inside Docker.
+    mkdir -p "${SONAR_METADATA_DIR}"
+    chmod 777 "${SONAR_METADATA_DIR}"
     
     docker run --rm --network "${CLI_NAME}" \
         -e SONAR_HOST_URL="http://${SONAR_INSTANCE_NAME}:9000"  \
         -e SONAR_TOKEN="${SONAR_TOKEN}" \
-        -e SONAR_SCANNER_OPTS="-Dsonar.projectKey=${SONAR_PROJECT_NAME} -Dsonar.sources=${SONAR_SOURCE_PATH} ${SONAR_OPTIONS}" \
+        -e SONAR_SCANNER_OPTS="-Dsonar.projectKey=${SONAR_PROJECT_NAME} -Dsonar.sources=${SONAR_SOURCE_PATH} ${SONAR_OPTIONS} -Dsonar.scanner.metadataFilePath=/scanwise-metadata/report-task.txt" \
         -v "${SONAR_GITROOT}:/usr/src" \
+        -v "${SONAR_METADATA_DIR}:/scanwise-metadata" \
         "${DOCKER_SONAR_CLI}";
     SCAN_RET_CODE="$?"
 
     if [[ "${SCAN_RET_CODE}" -eq "0" ]]; then
         # Wait on the scan's own background task so repeated PR base/head scans cannot read stale analysis data.
-        wait_for_analysis_task "${SONAR_GITROOT}/.scannerwork/report-task.txt"
+        wait_for_analysis_task "${SONAR_METADATA_DIR}/report-task.txt"
         echo "SonarQube scanning done"
         echo "Use webui http://localhost:${SONAR_INSTANCE_PORT} (admin/scanwise) or 'scanwise results' to get scan outputs"
     else
