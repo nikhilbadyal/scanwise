@@ -34,6 +34,16 @@ inputs:
       Only used in PR mode
     required: false
     default: 'false'
+  generate-pr-review-comments:
+    description: >
+      Add inline PR review comments for new findings that land on changed lines.
+      Only used in PR mode.
+    required: false
+    default: 'false'
+  max-pr-review-comments:
+    description: "Maximum inline PR review comments to create per run"
+    required: false
+    default: '20'
   new-code-n-days:
     description: >
       Specifies the number of days to define the 'New Code' period relative to the current date.
@@ -109,6 +119,7 @@ runs:
         chmod +x $ACTION_PATH/scripts/fetch-reports.sh
         chmod +x $ACTION_PATH/scripts/generate-summary-and-reports.sh
         chmod +x $ACTION_PATH/scripts/run-pre-scan-script.sh
+        chmod +x $ACTION_PATH/scripts/create-pr-review-comments.sh
       shell: bash
 
     - name: Checkout Code
@@ -341,6 +352,26 @@ runs:
         $ACTION_PATH/scripts/generate-summary-and-reports.sh emit_github_annotations \
           "reports/new/issues-report.json" \
           "reports/new/hotspots-report.json"
+
+    - name: Create inline PR review comments
+      if: inputs.generate-pr-review-comments == 'true' && steps.setup.outputs.mode == 'PR'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        GH_TOKEN: ${{ github.token }}
+        SCANWISE_REPOSITORY: ${{ github.repository }}
+        SCANWISE_PR_NUMBER: ${{ steps.setup.outputs.pr_number }}
+        SCANWISE_COMMIT_SHA: ${{ steps.setup.outputs.head_sha }}
+        SCANWISE_MAX_REVIEW_COMMENTS: ${{ inputs.max-pr-review-comments }}
+      run: |
+        # Inline review comments are best-effort and deduped; the sticky summary remains the complete report.
+        $ACTION_PATH/scripts/create-pr-review-comments.sh create_pr_review_comments \
+          "reports/new/issues-report.json" \
+          "reports/new/hotspots-report.json" \
+          "$SCANWISE_REPOSITORY" \
+          "$SCANWISE_PR_NUMBER" \
+          "$SCANWISE_COMMIT_SHA" \
+          "$SCANWISE_MAX_REVIEW_COMMENTS"
 
     - name: Convert Markdown overall Security Hotspots Reports to HTML and PDF
       if: contains(fromJSON(inputs.reports-scopes), 'overall')
